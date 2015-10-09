@@ -19,6 +19,7 @@
 #include "hw/virtio/virtio-blk.h"
 #include "hw/virtio/virtio-net.h"
 #include "hw/virtio/virtio-rng.h"
+#include "hw/virtio/virtio-peer.h"
 #include "hw/virtio/virtio-serial.h"
 #include "hw/virtio/virtio-scsi.h"
 #include "hw/virtio/virtio-balloon.h"
@@ -41,6 +42,7 @@ typedef struct VirtIOSerialPCI VirtIOSerialPCI;
 typedef struct VirtIONetPCI VirtIONetPCI;
 typedef struct VHostSCSIPCI VHostSCSIPCI;
 typedef struct VirtIORngPCI VirtIORngPCI;
+typedef struct VirtIOPeerPCI VirtIOPeerPCI;
 typedef struct VirtIOInputPCI VirtIOInputPCI;
 typedef struct VirtIOInputHIDPCI VirtIOInputHIDPCI;
 typedef struct VirtIOInputHostPCI VirtIOInputHostPCI;
@@ -241,6 +243,18 @@ typedef struct V9fsPCIState {
 struct VirtIORngPCI {
     VirtIOPCIProxy parent_obj;
     VirtIORNG vdev;
+};
+
+/*
+ * virtio-peer-pci: This extends VirtioPCIProxy.
+ */
+#define TYPE_VIRTIO_PEER_PCI "virtio-peer-pci"
+#define VIRTIO_PEER_PCI(obj) \
+        OBJECT_CHECK(VirtIOPeerPCI, (obj), TYPE_VIRTIO_PEER_PCI)
+
+struct VirtIOPeerPCI {
+    VirtIOPCIProxy parent_obj;
+    VirtIOPeer vdev;
 };
 
 /*

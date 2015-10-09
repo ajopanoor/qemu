@@ -2063,6 +2063,59 @@ static const TypeInfo virtio_rng_pci_info = {
     .class_init    = virtio_rng_pci_class_init,
 };
 
+/* virtio-peer-pci */
+
+static void virtio_peer_pci_realize(VirtIOPCIProxy *vpci_dev, Error **errp)
+{
+    VirtIOPeerPCI *peer = VIRTIO_PEER_PCI(vpci_dev);
+    DeviceState *vdev = DEVICE(&peer->vdev);
+    Error *err = NULL;
+
+    qdev_set_parent_bus(vdev, BUS(&vpci_dev->bus));
+    object_property_set_bool(OBJECT(vdev), true, "realized", &err);
+    if (err) {
+        error_propagate(errp, err);
+        return;
+    }
+
+    object_property_set_link(OBJECT(peer),
+                             OBJECT(peer->vdev.conf.peer), "peer",
+                             NULL);
+}
+
+static void virtio_peer_pci_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    VirtioPCIClass *k = VIRTIO_PCI_CLASS(klass);
+    PCIDeviceClass *pcidev_k = PCI_DEVICE_CLASS(klass);
+
+    k->realize = virtio_peer_pci_realize;
+    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
+
+    pcidev_k->vendor_id = PCI_VENDOR_ID_REDHAT_QUMRANET;
+    pcidev_k->device_id = PCI_DEVICE_ID_VIRTIO_PEER;
+    pcidev_k->revision = VIRTIO_PCI_ABI_VERSION;
+    pcidev_k->class_id = PCI_CLASS_OTHERS;
+}
+
+static void virtio_peer_initfn(Object *obj)
+{
+    VirtIOPeerPCI *dev = VIRTIO_PEER_PCI(obj);
+
+    virtio_instance_init_common(obj, &dev->vdev, sizeof(dev->vdev),
+                                TYPE_VIRTIO_PEER);
+    object_property_add_alias(obj, "peer", OBJECT(&dev->vdev), "peer",
+                              &error_abort);
+}
+
+static const TypeInfo virtio_peer_pci_info = {
+    .name          = TYPE_VIRTIO_PEER_PCI,
+    .parent        = TYPE_VIRTIO_PCI,
+    .instance_size = sizeof(VirtIOPeerPCI),
+    .instance_init = virtio_peer_initfn,
+    .class_init    = virtio_peer_pci_class_init,
+};
+
 /* virtio-input-pci */
 
 static Property virtio_input_pci_properties[] = {
@@ -2228,6 +2281,7 @@ static const TypeInfo virtio_pci_bus_info = {
 static void virtio_pci_register_types(void)
 {
     type_register_static(&virtio_rng_pci_info);
+    type_register_static(&virtio_peer_pci_info);
     type_register_static(&virtio_input_pci_info);
     type_register_static(&virtio_input_hid_pci_info);
     type_register_static(&virtio_keyboard_pci_info);

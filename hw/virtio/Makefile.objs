@@ -1,4 +1,5 @@
 common-obj-y += virtio-rng.o
+common-obj-y += virtio-peer.o
 common-obj-$(CONFIG_VIRTIO_PCI) += virtio-pci.o
 common-obj-y += virtio-bus.o
 common-obj-y += virtio-mmio.o
