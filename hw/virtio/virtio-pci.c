@@ -45,6 +45,15 @@
  * configuration space */
 #define VIRTIO_PCI_CONFIG_SIZE(dev)     VIRTIO_PCI_CONFIG_OFF(msix_enabled(dev))
 
+//#define DEBUG_VIRTIO_PCI
+
+#ifdef DEBUG_VIRTIO_PCI
+#define PCI_PRINTF(fmt, ...) \
+do { printf("virtio_pci: " fmt , ## __VA_ARGS__); } while (0)
+#else
+#define PCI_PRINTF(fmt, ...) do { } while (0)
+#endif
+
 static void virtio_pci_bus_new(VirtioBusState *bus, size_t bus_size,
                                VirtIOPCIProxy *dev);
 
@@ -396,6 +405,7 @@ static uint64_t virtio_pci_config_read(void *opaque, hwaddr addr,
         }
         break;
     }
+    PCI_PRINTF("%s %s addr %lu val 0x%lx len %d\n", __func__, proxy->pci_dev.name, addr, val, size);
     return val;
 }
 
@@ -405,6 +415,8 @@ static void virtio_pci_config_write(void *opaque, hwaddr addr,
     VirtIOPCIProxy *proxy = opaque;
     uint32_t config = VIRTIO_PCI_CONFIG_SIZE(&proxy->pci_dev);
     VirtIODevice *vdev = virtio_bus_get_device(&proxy->bus);
+
+    PCI_PRINTF("%s %s addr %lu val 0x%lx len %d\n", __func__, proxy->pci_dev.name, addr, val, size);
     if (addr < config) {
         virtio_ioport_write(proxy, addr, val);
         return;
@@ -528,6 +540,7 @@ static void virtio_write_config(PCIDevice *pci_dev, uint32_t address,
     struct virtio_pci_cfg_cap *cfg;
 
     pci_default_write_config(pci_dev, address, val, len);
+    PCI_PRINTF("%s %s addr %u val 0x%x len %d\n", __func__, pci_dev->name, address, val, len);
 
     if (range_covers_byte(address, len, PCI_COMMAND) &&
         !(pci_dev->config[PCI_COMMAND] & PCI_COMMAND_MASTER)) {
@@ -559,6 +572,7 @@ static uint32_t virtio_read_config(PCIDevice *pci_dev,
 {
     VirtIOPCIProxy *proxy = DO_UPCAST(VirtIOPCIProxy, pci_dev, pci_dev);
     struct virtio_pci_cfg_cap *cfg;
+    uint32_t val = 0;
 
     if (proxy->config_cap &&
         ranges_overlap(address, len, proxy->config_cap + offsetof(struct virtio_pci_cfg_cap,
@@ -577,8 +591,11 @@ static uint32_t virtio_read_config(PCIDevice *pci_dev,
                                       cfg->pci_cfg_data, len);
         }
     }
+    val = pci_default_read_config(pci_dev, address, len);
 
-    return pci_default_read_config(pci_dev, address, len);
+    PCI_PRINTF("%s %s addr %u val 0x%x len %d\n", __func__, pci_dev->name, address, val, len);
+
+    return val;
 }
 
 static int kvm_virtio_pci_vq_vector_use(VirtIOPCIProxy *proxy,
@@ -2071,6 +2088,10 @@ static void virtio_peer_pci_realize(VirtIOPCIProxy *vpci_dev, Error **errp)
     DeviceState *vdev = DEVICE(&peer->vdev);
     Error *err = NULL;
 
+    /* force virtio-1.0 */
+    vpci_dev->flags &= ~VIRTIO_PCI_FLAG_DISABLE_MODERN;
+    vpci_dev->flags |= VIRTIO_PCI_FLAG_DISABLE_LEGACY;
+
     qdev_set_parent_bus(vdev, BUS(&vpci_dev->bus));
     object_property_set_bool(OBJECT(vdev), true, "realized", &err);
     if (err) {
@@ -2098,7 +2119,7 @@ static void virtio_peer_pci_class_init(ObjectClass *klass, void *data)
     pcidev_k->class_id = PCI_CLASS_OTHERS;
 }
 
-static void virtio_peer_initfn(Object *obj)
+static void virtio_peer_pci_initfn(Object *obj)
 {
     VirtIOPeerPCI *dev = VIRTIO_PEER_PCI(obj);
 
@@ -2112,7 +2133,7 @@ static const TypeInfo virtio_peer_pci_info = {
     .name          = TYPE_VIRTIO_PEER_PCI,
     .parent        = TYPE_VIRTIO_PCI,
     .instance_size = sizeof(VirtIOPeerPCI),
-    .instance_init = virtio_peer_initfn,
+    .instance_init = virtio_peer_pci_initfn,
     .class_init    = virtio_peer_pci_class_init,
 };
 

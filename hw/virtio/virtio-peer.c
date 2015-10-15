@@ -23,10 +23,15 @@ do { printf("virtio_peer: " fmt , ## __VA_ARGS__); } while (0)
 #define DPRINTF(fmt, ...) do { } while (0)
 #endif
 
-static uint64_t get_features(VirtIODevice *vdev, uint64_t f, Error **errp)
+static uint64_t virtio_peer_get_features(VirtIODevice *vdev, uint64_t f, Error **errp)
 {
     DPRINTF("%s\n", __func__);
     return f;
+}
+
+static void virtio_peer_set_features(VirtIODevice *vdev, uint64_t features)
+{
+    DPRINTF("%s\n", __func__);
 }
 
 static void virtio_peer_handle_rx(VirtIODevice *vdev, VirtQueue *vq)
@@ -39,6 +44,33 @@ static void virtio_peer_handle_tx(VirtIODevice *vdev, VirtQueue *vq)
     DPRINTF("%s\n", __func__);
 }
 
+static void virtio_peer_get_config(VirtIODevice *vdev, uint8_t *config)
+{
+    VirtIOPeer *vpeer = VIRTIO_PEER(vdev);
+
+    DPRINTF("%s\n", __func__);
+    memcpy(config, &vpeer->cfg, vpeer->config_size);
+}
+
+static void virtio_peer_set_config(VirtIODevice *vdev, const uint8_t *config)
+{
+    VirtIOPeer *vpeer = VIRTIO_PEER(vdev);
+
+    DPRINTF("%s\n", __func__);
+    memcpy(&vpeer->cfg, config, vpeer->config_size);
+}
+
+static void virtio_peer_reset(VirtIODevice *vdev)
+{
+    VirtIOPeer *vpeer = VIRTIO_PEER(vdev);
+
+    DPRINTF("%s\n", __func__);
+    memset(&vpeer->cfg, 0, vpeer->config_size);
+    vpeer->cfg.queue_flags = VIRTIO_PEER_FLAGS_LOCAL;
+    vpeer->cfg.queue_window_idr = 0;
+    vpeer->cfg.queue_window_idw = 1;
+}
+
 static void virtio_peer_device_realize(DeviceState *dev, Error **errp)
 {
     VirtIODevice *vdev = VIRTIO_DEVICE(dev);
@@ -46,7 +78,7 @@ static void virtio_peer_device_realize(DeviceState *dev, Error **errp)
 
     DPRINTF("%s\n", __func__);
 
-    virtio_init(vdev, "virtio-peer", VIRTIO_ID_PEER, 0);
+    virtio_init(vdev, "virtio-peer", VIRTIO_ID_PEER, vpeer->config_size);
 
     vpeer->rx_vq = virtio_add_queue(vdev, 64, virtio_peer_handle_rx);
 
@@ -71,19 +103,22 @@ static void virtio_peer_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     VirtioDeviceClass *vdc = VIRTIO_DEVICE_CLASS(klass);
 
-    DPRINTF("%s\n", __func__);
     dc->props = virtio_peer_properties;
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
     vdc->realize = virtio_peer_device_realize;
     vdc->unrealize = virtio_peer_device_unrealize;
-    vdc->get_features = get_features;
+    vdc->get_features = virtio_peer_get_features;
+    vdc->set_features = virtio_peer_set_features;
+    vdc->get_config = virtio_peer_get_config;
+    vdc->set_config = virtio_peer_set_config;
+    vdc->reset = virtio_peer_reset;
 }
 
 static void virtio_peer_initfn(Object *obj)
 {
     VirtIOPeer *vpeer = VIRTIO_PEER(obj);
 
-    DPRINTF("%s\n", __func__);
+    vpeer->config_size = sizeof(struct virtio_peer_config);
     object_property_add_link(obj, "peer", TYPE_PEER_BACKEND,
                              (Object **)&vpeer->conf.peer,
                              qdev_prop_allow_set_link_before_realize,
@@ -100,7 +135,6 @@ static const TypeInfo virtio_peer_info = {
 
 static void virtio_register_types(void)
 {
-    DPRINTF("%s\n", __func__);
     type_register_static(&virtio_peer_info);
 }
 

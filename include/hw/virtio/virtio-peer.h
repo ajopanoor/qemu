@@ -23,19 +23,16 @@
 
 typedef struct VirtIOPeerConf {
     PeerBackend *peer;
-
     uint32_t win_size;
-
 }VirtIOPeerConf;
 
 typedef struct VirtIOPeer {
     VirtIODevice parent_obj;
-
     VirtQueue *rx_vq;
     VirtQueue *tx_vq;
-
     VirtIOPeerConf conf;
-
-} VirtIOPeer;
+    struct virtio_peer_config cfg;
+    size_t config_size;
+}VirtIOPeer;
 
 #endif
