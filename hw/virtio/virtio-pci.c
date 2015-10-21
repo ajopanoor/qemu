@@ -1313,6 +1313,7 @@ static uint64_t virtio_pci_isr_read(void *opaque, hwaddr addr,
 static void virtio_pci_isr_write(void *opaque, hwaddr addr,
                                  uint64_t val, unsigned size)
 {
+
 }
 
 static uint64_t virtio_pci_device_read(void *opaque, hwaddr addr,
@@ -1339,6 +1340,49 @@ static void virtio_pci_device_write(void *opaque, hwaddr addr,
                                     uint64_t val, unsigned size)
 {
     VirtIODevice *vdev = opaque;
+
+    switch (size) {
+    case 1:
+        virtio_config_modern_writeb(vdev, addr, val);
+        break;
+    case 2:
+        virtio_config_modern_writew(vdev, addr, val);
+        break;
+    case 4:
+        virtio_config_modern_writel(vdev, addr, val);
+        break;
+    }
+}
+
+static uint64_t virtio_pci_window_read(void *opaque, hwaddr addr,
+                                       unsigned size)
+{
+    VirtIOPCIProxy *proxy = opaque;
+    VirtIODevice *vdev = virtio_bus_get_device(&proxy->bus);
+    uint64_t val = 0;
+
+    PCI_PRINTF("%s %s addr %lu val 0x%lx len %d\n", __func__, proxy->pci_dev.name, addr, val, size);
+    switch (size) {
+    case 1:
+        val = virtio_config_modern_readb(vdev, addr);
+        break;
+    case 2:
+        val = virtio_config_modern_readw(vdev, addr);
+        break;
+    case 4:
+        val = virtio_config_modern_readl(vdev, addr);
+        break;
+    }
+    return val;
+}
+
+static void virtio_pci_window_write(void *opaque, hwaddr addr,
+                                    uint64_t val, unsigned size)
+{
+    VirtIOPCIProxy *proxy = opaque;
+    VirtIODevice *vdev = virtio_bus_get_device(&proxy->bus);
+
+    PCI_PRINTF("%s %s addr %lu val 0x%lx len %d\n", __func__, proxy->pci_dev.name, addr, val, size);
     switch (size) {
     case 1:
         virtio_config_modern_writeb(vdev, addr, val);
@@ -1390,6 +1434,15 @@ static void virtio_pci_modern_regions_init(VirtIOPCIProxy *proxy)
         },
         .endianness = DEVICE_LITTLE_ENDIAN,
     };
+    static const MemoryRegionOps window_ops = {
+        .read = virtio_pci_window_read,
+        .write = virtio_pci_window_write,
+        .impl = {
+            .min_access_size = 1,
+            .max_access_size = 4,
+        },
+        .endianness = DEVICE_LITTLE_ENDIAN,
+    };
 
     memory_region_init_io(&proxy->common.mr, OBJECT(proxy),
                           &common_ops,
@@ -1414,6 +1467,12 @@ static void virtio_pci_modern_regions_init(VirtIOPCIProxy *proxy)
                           virtio_bus_get_device(&proxy->bus),
                           "virtio-pci-notify",
                           proxy->notify.size);
+
+    memory_region_init_io(&proxy->window.mr, OBJECT(proxy),
+                          &window_ops,
+                          proxy,
+                          "virtio-pci-window",
+                          proxy->window.size);
 }
 
 static void virtio_pci_modern_region_map(VirtIOPCIProxy *proxy,
@@ -1493,6 +1552,7 @@ static void virtio_pci_device_plugged(DeviceState *d, Error **errp)
         virtio_pci_modern_region_map(proxy, &proxy->isr, &cap);
         virtio_pci_modern_region_map(proxy, &proxy->device, &cap);
         virtio_pci_modern_region_map(proxy, &proxy->notify, &notify.cap);
+        virtio_pci_modern_region_map(proxy, &proxy->window, &cap);
 
         pci_register_bar(&proxy->pci_dev, proxy->modern_mem_bar,
                          PCI_BASE_ADDRESS_SPACE_MEMORY |
@@ -1556,6 +1616,7 @@ static void virtio_pci_device_unplugged(DeviceState *d)
         virtio_pci_modern_region_unmap(proxy, &proxy->isr);
         virtio_pci_modern_region_unmap(proxy, &proxy->device);
         virtio_pci_modern_region_unmap(proxy, &proxy->notify);
+        virtio_pci_modern_region_unmap(proxy, &proxy->window);
     }
 }
 
@@ -1593,6 +1654,14 @@ static void virtio_pci_realize(PCIDevice *pci_dev, Error **errp)
     proxy->notify.size =
         QEMU_VIRTIO_PCI_QUEUE_MEM_MULT * VIRTIO_QUEUE_MAX;
     proxy->notify.type = VIRTIO_PCI_CAP_NOTIFY_CFG;
+
+    proxy->window.offset = proxy->notify.offset + proxy->notify.size;
+    proxy->window.size = 0x1000;
+    proxy->window.type = VIRTIO_PCI_CAP_WINDOW_CFG;
+
+    proxy->window.offset = proxy->notify.offset + proxy->notify.size;
+    proxy->window.size = 0x1000;
+    proxy->window.type = VIRTIO_PCI_CAP_WINDOW_CFG;
 
     /* subclasses can enforce modern, so do this unconditionally */
     memory_region_init(&proxy->modern_bar, OBJECT(proxy), "virtio-pci",
@@ -2100,7 +2169,7 @@ static void virtio_peer_pci_realize(VirtIOPCIProxy *vpci_dev, Error **errp)
     }
 
     object_property_set_link(OBJECT(peer),
-                             OBJECT(peer->vdev.conf.peer), "peer",
+                             OBJECT(peer->vdev.peer), "peer",
                              NULL);
 }
 

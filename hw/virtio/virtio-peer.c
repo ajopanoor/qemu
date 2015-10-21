@@ -13,6 +13,9 @@
 #include "hw/virtio/virtio-peer.h"
 #include "qom/object_interfaces.h"
 #include "trace.h"
+#include <sys/mman.h>
+#include <sys/stat.h>        /* For mode constants */
+#include <fcntl.h>           /* For O_* constants */
 
 #define DEBUG_VIRTIO_PEER
 
@@ -49,7 +52,7 @@ static void virtio_peer_get_config(VirtIODevice *vdev, uint8_t *config)
     VirtIOPeer *vpeer = VIRTIO_PEER(vdev);
 
     DPRINTF("%s\n", __func__);
-    memcpy(config, &vpeer->cfg, vpeer->config_size);
+    memcpy(config, &vpeer->dev_cfg, vpeer->dev_cfg_size);
 }
 
 static void virtio_peer_set_config(VirtIODevice *vdev, const uint8_t *config)
@@ -57,7 +60,61 @@ static void virtio_peer_set_config(VirtIODevice *vdev, const uint8_t *config)
     VirtIOPeer *vpeer = VIRTIO_PEER(vdev);
 
     DPRINTF("%s\n", __func__);
-    memcpy(&vpeer->cfg, config, vpeer->config_size);
+    memcpy(&vpeer->dev_cfg, config, vpeer->dev_cfg_size);
+}
+
+static int config_window(VirtIOPeer *vpeer, int type)
+{
+    VirtIOWinCfg *win = &vpeer->win_cfg[type];
+    char shm_name[2][10] = { "vpeer-ro", "vpeer-rw" };
+    int ret = -ENOMEM;
+
+    strncpy(win->shm_name, shm_name[type], 10);
+
+    if ((win->fd = shm_open(win->shm_name, O_CREAT|O_RDWR|O_EXCL,
+                    S_IRWXU|S_IRWXG|S_IRWXO)) > 0) {
+
+        if (ftruncate(win->fd, win->win_size) != 0)
+            DPRINTF("%s window %s shm_open failed\n", __func__, win->shm_name);
+
+    } else if ((win->fd = shm_open(win->shm_name, O_CREAT|O_RDWR,
+                        S_IRWXU|S_IRWXG|S_IRWXO)) < 0) {
+        DPRINTF("%s window %s shm_open failed\n", __func__, win->shm_name);
+        return ret;
+    }
+
+    win->va = mmap(0, win->win_size, PROT_READ|PROT_WRITE, MAP_SHARED,
+                                                                win->fd, 0);
+    if(!win->va) {
+        DPRINTF("%s window %s mmap failed\n", __func__, win->shm_name);
+        close(win->fd);
+        return ret;
+    }
+
+    memory_region_init_ram_ptr(&win->wmr, OBJECT(vpeer), win->shm_name,
+                               win->win_size, win->va);
+    return 0;
+}
+
+static inline void read_queue_config(VirtIOPeer *vpeer)
+{
+    int ro, rw;
+
+    vpeer->dev_cfg.queue_magic = VIRTIO_PEER_MAGIC;
+
+    if(vpeer->role == MASTER) {
+        ro = vpeer->dev_cfg.queue_window_idr = 0;
+        rw = vpeer->dev_cfg.queue_window_idw = 1;
+    } else {
+        ro = vpeer->dev_cfg.queue_window_idr = 1;
+        rw = vpeer->dev_cfg.queue_window_idw = 0;
+    }
+
+    vpeer->dev_cfg.windows[ro].win_phy_start = (uint64_t) vpeer->win_cfg[ro].va;
+    vpeer->dev_cfg.windows[rw].win_phy_start = (uint64_t) vpeer->win_cfg[rw].va;
+
+    vpeer->dev_cfg.windows[rw].win_size = vpeer->win_cfg[ro].win_size;
+    vpeer->dev_cfg.windows[ro].win_size = vpeer->win_cfg[rw].win_size;
 }
 
 static void virtio_peer_reset(VirtIODevice *vdev)
@@ -65,10 +122,15 @@ static void virtio_peer_reset(VirtIODevice *vdev)
     VirtIOPeer *vpeer = VIRTIO_PEER(vdev);
 
     DPRINTF("%s\n", __func__);
-    memset(&vpeer->cfg, 0, vpeer->config_size);
-    vpeer->cfg.queue_flags = VIRTIO_PEER_FLAGS_LOCAL;
-    vpeer->cfg.queue_window_idr = 0;
-    vpeer->cfg.queue_window_idw = 1;
+    memset(&vpeer->dev_cfg, 0, vpeer->dev_cfg_size);
+    read_queue_config(vpeer);
+}
+
+static void read_args(VirtIOPeer *vpeer)
+{
+    vpeer->win_cfg[0].win_size = 4 << 20; // 4 MB FIXME: use cmd_size
+    vpeer->win_cfg[1].win_size = 4 << 20; // 4 MB FIXME: use cmd_size
+    vpeer->role = (strncmp(vpeer->args.cmd_role, "peer", 4) ? MASTER : PEER);
 }
 
 static void virtio_peer_device_realize(DeviceState *dev, Error **errp)
@@ -78,7 +140,15 @@ static void virtio_peer_device_realize(DeviceState *dev, Error **errp)
 
     DPRINTF("%s\n", __func__);
 
-    virtio_init(vdev, "virtio-peer", VIRTIO_ID_PEER, vpeer->config_size);
+    read_args(vpeer);
+
+    config_window(vpeer, 0);
+
+    config_window(vpeer, 1);
+
+    read_queue_config(vpeer);
+
+    virtio_init(vdev, "virtio-peer", VIRTIO_ID_PEER, vpeer->dev_cfg_size);
 
     vpeer->rx_vq = virtio_add_queue(vdev, 64, virtio_peer_handle_rx);
 
@@ -95,6 +165,8 @@ static void virtio_peer_device_unrealize(DeviceState *dev, Error **errp)
 }
 
 static Property virtio_peer_properties[] = {
+    DEFINE_PROP_STRING("window_size", VirtIOPeer, args.cmd_size),
+    DEFINE_PROP_STRING("role", VirtIOPeer, args.cmd_role),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -118,9 +190,9 @@ static void virtio_peer_initfn(Object *obj)
 {
     VirtIOPeer *vpeer = VIRTIO_PEER(obj);
 
-    vpeer->config_size = sizeof(struct virtio_peer_config);
+    vpeer->dev_cfg_size = sizeof(struct virtio_peer_config);
     object_property_add_link(obj, "peer", TYPE_PEER_BACKEND,
-                             (Object **)&vpeer->conf.peer,
+                             (Object **)&vpeer->peer,
                              qdev_prop_allow_set_link_before_realize,
                              OBJ_PROP_LINK_UNREF_ON_RELEASE, NULL);
 }

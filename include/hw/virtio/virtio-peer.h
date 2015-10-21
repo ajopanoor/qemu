@@ -21,18 +21,30 @@
 #define VIRTIO_PEER_GET_PARENT_CLASS(obj) \
         OBJECT_GET_PARENT_CLASS(obj, TYPE_VIRTIO_PEER)
 
-typedef struct VirtIOPeerConf {
-    PeerBackend *peer;
+typedef struct VirtIOPeerArgs {
+    char *cmd_size;
+    char *cmd_role;
+}VirtIOPeerArgs;
+
+typedef struct VirtIOWinCfg {
+    int fd;
+    uint32_t shmid;
+    char shm_name[10];
     uint32_t win_size;
-}VirtIOPeerConf;
+    void *va;
+    MemoryRegion wmr;
+}VirtIOWinCfg;
 
 typedef struct VirtIOPeer {
     VirtIODevice parent_obj;
+    int role;
+    size_t dev_cfg_size;
+    PeerBackend *peer;
     VirtQueue *rx_vq;
     VirtQueue *tx_vq;
-    VirtIOPeerConf conf;
-    struct virtio_peer_config cfg;
-    size_t config_size;
+    VirtIOPeerArgs args;
+    VirtIOWinCfg win_cfg[2];
+    struct virtio_peer_config dev_cfg;
 }VirtIOPeer;
 
 #endif

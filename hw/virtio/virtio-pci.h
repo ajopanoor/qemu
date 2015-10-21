@@ -113,6 +113,7 @@ struct VirtIOPCIProxy {
     VirtIOPCIRegion isr;
     VirtIOPCIRegion device;
     VirtIOPCIRegion notify;
+    VirtIOPCIRegion window;
     MemoryRegion modern_bar;
     MemoryRegion modern_cfg;
     AddressSpace modern_as;
