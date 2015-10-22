@@ -16,6 +16,9 @@
  */
 
 #include <inttypes.h>
+#include <sys/mman.h>
+#include <sys/stat.h>        /* For mode constants */
+#include <fcntl.h>           /* For O_* constants */
 
 #include "standard-headers/linux/virtio_pci.h"
 #include "hw/virtio/virtio.h"
@@ -45,7 +48,7 @@
  * configuration space */
 #define VIRTIO_PCI_CONFIG_SIZE(dev)     VIRTIO_PCI_CONFIG_OFF(msix_enabled(dev))
 
-//#define DEBUG_VIRTIO_PCI
+#define DEBUG_VIRTIO_PCI
 
 #ifdef DEBUG_VIRTIO_PCI
 #define PCI_PRINTF(fmt, ...) \
@@ -1659,10 +1662,6 @@ static void virtio_pci_realize(PCIDevice *pci_dev, Error **errp)
     proxy->window.size = 0x1000;
     proxy->window.type = VIRTIO_PCI_CAP_WINDOW_CFG;
 
-    proxy->window.offset = proxy->notify.offset + proxy->notify.size;
-    proxy->window.size = 0x1000;
-    proxy->window.type = VIRTIO_PCI_CAP_WINDOW_CFG;
-
     /* subclasses can enforce modern, so do this unconditionally */
     memory_region_init(&proxy->modern_bar, OBJECT(proxy), "virtio-pci",
                        2 * QEMU_VIRTIO_PCI_QUEUE_MEM_MULT *
@@ -2151,26 +2150,67 @@ static const TypeInfo virtio_rng_pci_info = {
 
 /* virtio-peer-pci */
 
-static void virtio_peer_pci_realize(VirtIOPCIProxy *vpci_dev, Error **errp)
+static int virtio_peer_config_window(VirtIOPCIProxy *proxy, int idx, int bar)
 {
-    VirtIOPeerPCI *peer = VIRTIO_PEER_PCI(vpci_dev);
-    DeviceState *vdev = DEVICE(&peer->vdev);
+    VirtIOPeerPCI *vpci = VIRTIO_PEER_PCI(proxy);
+    VirtIOPeer *vpeer = &vpci->vdev;
+    VirtIOWinCfg *win = &vpeer->win_cfg[idx];
+    char shm_name[2][10] = { "vpeer-ro", "vpeer-rw" };
+    int ret = -ENOMEM;
+    uint32_t attr;
+
+    win->win_size = 4 << 20; /* 4 MB FIXME: use cmd_size */
+    strncpy(win->shm_name, shm_name[idx], 10);
+
+    if ((win->fd = shm_open(win->shm_name, O_CREAT|O_RDWR|O_EXCL,
+                    S_IRWXU|S_IRWXG|S_IRWXO)) > 0) {
+
+        if (ftruncate(win->fd, win->win_size) != 0)
+            PCI_PRINTF("%s window %s shm_open failed\n", __func__, win->shm_name);
+
+    } else if ((win->fd = shm_open(win->shm_name, O_CREAT|O_RDWR,
+                        S_IRWXU|S_IRWXG|S_IRWXO)) < 0) {
+        PCI_PRINTF("%s window %s shm_open failed\n", __func__, win->shm_name);
+        return ret;
+    }
+
+    win->va = mmap(0, win->win_size, PROT_READ|PROT_WRITE, MAP_SHARED,
+                                                                win->fd, 0);
+    if(!win->va) {
+        PCI_PRINTF("%s window %s mmap failed\n", __func__, win->shm_name);
+        close(win->fd);
+        return ret;
+    }
+
+    attr = PCI_BASE_ADDRESS_SPACE_MEMORY | PCI_BASE_ADDRESS_MEM_PREFETCH;
+
+    memory_region_init_ram_ptr(&win->wmr, OBJECT(proxy), win->shm_name,
+                               win->win_size, win->va);
+
+    pci_register_bar(&proxy->pci_dev, bar, attr, &win->wmr);
+
+    return 0;
+}
+
+static void virtio_peer_pci_realize(VirtIOPCIProxy *proxy, Error **errp)
+{
+    VirtIOPeerPCI *vpci = VIRTIO_PEER_PCI(proxy);
+    DeviceState *vdev = DEVICE(&vpci->vdev);
     Error *err = NULL;
 
     /* force virtio-1.0 */
-    vpci_dev->flags &= ~VIRTIO_PCI_FLAG_DISABLE_MODERN;
-    vpci_dev->flags |= VIRTIO_PCI_FLAG_DISABLE_LEGACY;
+    proxy->flags &= ~VIRTIO_PCI_FLAG_DISABLE_MODERN;
+    proxy->flags |= VIRTIO_PCI_FLAG_DISABLE_LEGACY;
 
-    qdev_set_parent_bus(vdev, BUS(&vpci_dev->bus));
+    virtio_peer_config_window(proxy, 0, 2); /* BAR 2 */
+    virtio_peer_config_window(proxy, 1, 3); /* BAR 3 */
+
+    qdev_set_parent_bus(vdev, BUS(&proxy->bus));
     object_property_set_bool(OBJECT(vdev), true, "realized", &err);
     if (err) {
         error_propagate(errp, err);
         return;
     }
-
-    object_property_set_link(OBJECT(peer),
-                             OBJECT(peer->vdev.peer), "peer",
-                             NULL);
 }
 
 static void virtio_peer_pci_class_init(ObjectClass *klass, void *data)
@@ -2194,8 +2234,6 @@ static void virtio_peer_pci_initfn(Object *obj)
 
     virtio_instance_init_common(obj, &dev->vdev, sizeof(dev->vdev),
                                 TYPE_VIRTIO_PEER);
-    object_property_add_alias(obj, "peer", OBJECT(&dev->vdev), "peer",
-                              &error_abort);
 }
 
 static const TypeInfo virtio_peer_pci_info = {

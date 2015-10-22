@@ -63,39 +63,6 @@ static void virtio_peer_set_config(VirtIODevice *vdev, const uint8_t *config)
     memcpy(&vpeer->dev_cfg, config, vpeer->dev_cfg_size);
 }
 
-static int config_window(VirtIOPeer *vpeer, int type)
-{
-    VirtIOWinCfg *win = &vpeer->win_cfg[type];
-    char shm_name[2][10] = { "vpeer-ro", "vpeer-rw" };
-    int ret = -ENOMEM;
-
-    strncpy(win->shm_name, shm_name[type], 10);
-
-    if ((win->fd = shm_open(win->shm_name, O_CREAT|O_RDWR|O_EXCL,
-                    S_IRWXU|S_IRWXG|S_IRWXO)) > 0) {
-
-        if (ftruncate(win->fd, win->win_size) != 0)
-            DPRINTF("%s window %s shm_open failed\n", __func__, win->shm_name);
-
-    } else if ((win->fd = shm_open(win->shm_name, O_CREAT|O_RDWR,
-                        S_IRWXU|S_IRWXG|S_IRWXO)) < 0) {
-        DPRINTF("%s window %s shm_open failed\n", __func__, win->shm_name);
-        return ret;
-    }
-
-    win->va = mmap(0, win->win_size, PROT_READ|PROT_WRITE, MAP_SHARED,
-                                                                win->fd, 0);
-    if(!win->va) {
-        DPRINTF("%s window %s mmap failed\n", __func__, win->shm_name);
-        close(win->fd);
-        return ret;
-    }
-
-    memory_region_init_ram_ptr(&win->wmr, OBJECT(vpeer), win->shm_name,
-                               win->win_size, win->va);
-    return 0;
-}
-
 static inline void read_queue_config(VirtIOPeer *vpeer)
 {
     int ro, rw;
@@ -128,8 +95,6 @@ static void virtio_peer_reset(VirtIODevice *vdev)
 
 static void read_args(VirtIOPeer *vpeer)
 {
-    vpeer->win_cfg[0].win_size = 4 << 20; // 4 MB FIXME: use cmd_size
-    vpeer->win_cfg[1].win_size = 4 << 20; // 4 MB FIXME: use cmd_size
     vpeer->role = (strncmp(vpeer->args.cmd_role, "peer", 4) ? MASTER : PEER);
 }
 
@@ -141,10 +106,6 @@ static void virtio_peer_device_realize(DeviceState *dev, Error **errp)
     DPRINTF("%s\n", __func__);
 
     read_args(vpeer);
-
-    config_window(vpeer, 0);
-
-    config_window(vpeer, 1);
 
     read_queue_config(vpeer);
 
@@ -191,10 +152,6 @@ static void virtio_peer_initfn(Object *obj)
     VirtIOPeer *vpeer = VIRTIO_PEER(obj);
 
     vpeer->dev_cfg_size = sizeof(struct virtio_peer_config);
-    object_property_add_link(obj, "peer", TYPE_PEER_BACKEND,
-                             (Object **)&vpeer->peer,
-                             qdev_prop_allow_set_link_before_realize,
-                             OBJ_PROP_LINK_UNREF_ON_RELEASE, NULL);
 }
 
 static const TypeInfo virtio_peer_info = {
