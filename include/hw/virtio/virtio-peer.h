@@ -29,10 +29,11 @@ typedef struct VirtIOPeerArgs {
 typedef struct VirtIOWinCfg {
     int fd;
     int bar;
+    int flags;
+    void *va;
     uint32_t shmid;
     char shm_name[10];
     uint32_t win_size;
-    void *va;
     MemoryRegion wmr;
 }VirtIOWinCfg;
 
@@ -46,6 +47,7 @@ typedef struct VirtIOPeer {
     VirtIOPeerArgs args;
     VirtIOWinCfg win_cfg[2];
     struct virtio_peer_config dev_cfg;
+    struct virtio_window_config win_common_cfg;
 }VirtIOPeer;
 
 #endif

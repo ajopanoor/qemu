@@ -378,7 +378,6 @@ static uint32_t virtio_ioport_read(VirtIOPCIProxy *proxy, uint32_t addr)
 
     return ret;
 }
-
 static uint64_t virtio_pci_config_read(void *opaque, hwaddr addr,
                                        unsigned size)
 {
@@ -1361,42 +1360,34 @@ static uint64_t virtio_pci_window_read(void *opaque, hwaddr addr,
                                        unsigned size)
 {
     VirtIOPCIProxy *proxy = opaque;
-    VirtIODevice *vdev = virtio_bus_get_device(&proxy->bus);
+    VirtIOPeerPCI *vpci = VIRTIO_PEER_PCI(proxy);
+    VirtIOPeer *vpeer = &vpci->vdev;
     uint64_t val = 0;
 
-    PCI_PRINTF("%s %s addr %lu val 0x%lx len %d\n", __func__, proxy->pci_dev.name, addr, val, size);
-    switch (size) {
-    case 1:
-        val = virtio_config_modern_readb(vdev, addr);
+   switch (addr) {
+    case VIRTIO_PCI_WINDOW_RO_BAR:
+	    val = vpeer->win_common_cfg.ro_bar;
         break;
-    case 2:
-        val = virtio_config_modern_readw(vdev, addr);
+    case VIRTIO_PCI_WINDOW_RW_BAR:
+	    val = vpeer->win_common_cfg.rw_bar;
         break;
-    case 4:
-        val = virtio_config_modern_readl(vdev, addr);
+    case VIRTIO_PCI_WINDOW_RO_SIZE:
+        val = vpeer->win_common_cfg.ro_win_size;
+    case VIRTIO_PCI_WINDOW_RW_SIZE:
+        val = vpeer->win_common_cfg.rw_win_size;
         break;
     }
+
+    PCI_PRINTF("%s %s addr %lu val 0x%lx len %d\n", __func__,
+            proxy->pci_dev.name, addr, val, size);
+
     return val;
 }
 
 static void virtio_pci_window_write(void *opaque, hwaddr addr,
                                     uint64_t val, unsigned size)
 {
-    VirtIOPCIProxy *proxy = opaque;
-    VirtIODevice *vdev = virtio_bus_get_device(&proxy->bus);
-
-    PCI_PRINTF("%s %s addr %lu val 0x%lx len %d\n", __func__, proxy->pci_dev.name, addr, val, size);
-    switch (size) {
-    case 1:
-        virtio_config_modern_writeb(vdev, addr, val);
-        break;
-    case 2:
-        virtio_config_modern_writew(vdev, addr, val);
-        break;
-    case 4:
-        virtio_config_modern_writel(vdev, addr, val);
-        break;
-    }
+    return;
 }
 
 static void virtio_pci_modern_regions_init(VirtIOPCIProxy *proxy)

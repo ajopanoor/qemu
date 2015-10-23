@@ -68,11 +68,28 @@ static inline void read_queue_config(VirtIOPeer *vpeer)
     vpeer->dev_cfg.queue_magic = VIRTIO_PEER_MAGIC;
 
     if(vpeer->role == MASTER) {
-        vpeer->dev_cfg.queue_window_idr = vpeer->win_cfg[0].bar;
-        vpeer->dev_cfg.queue_window_idw = vpeer->win_cfg[1].bar;
+        vpeer->dev_cfg.queue_window_idr = 0;
+        vpeer->dev_cfg.queue_window_idw = 1;
     } else {
-        vpeer->dev_cfg.queue_window_idr = vpeer->win_cfg[1].bar;
-        vpeer->dev_cfg.queue_window_idw = vpeer->win_cfg[0].bar;
+        vpeer->dev_cfg.queue_window_idr = 1;
+        vpeer->dev_cfg.queue_window_idw = 0;
+    }
+}
+
+static inline void read_window_config(VirtIOPeer *vpeer)
+{
+    struct virtio_window_config *wcfg = &vpeer->win_common_cfg;
+
+    if(vpeer->role == MASTER) {
+        wcfg->rw_bar = vpeer->win_cfg[0].bar;
+        wcfg->ro_bar = vpeer->win_cfg[1].bar;
+        wcfg->rw_win_size = vpeer->win_cfg[0].win_size;
+        wcfg->ro_win_size = vpeer->win_cfg[1].win_size;
+    } else {
+        wcfg->rw_bar = vpeer->win_cfg[1].bar;
+        wcfg->ro_bar = vpeer->win_cfg[0].bar;
+        wcfg->rw_win_size = vpeer->win_cfg[1].win_size;
+        wcfg->ro_win_size = vpeer->win_cfg[0].win_size;
     }
 }
 
@@ -100,6 +117,8 @@ static void virtio_peer_device_realize(DeviceState *dev, Error **errp)
     read_args(vpeer);
 
     read_queue_config(vpeer);
+
+    read_window_config(vpeer);
 
     virtio_init(vdev, "virtio-peer", VIRTIO_ID_PEER, vpeer->dev_cfg_size);
 

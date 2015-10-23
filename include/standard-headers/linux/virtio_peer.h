@@ -10,11 +10,10 @@
 #define VIRTIO_PEER_MAGIC           0x70656572
 #define MASTER                      0
 #define PEER                        1
-
-struct virtio_window {
-    uint64_t win_phy_start;
-    uint32_t win_size;
-} QEMU_PACKED;
+#define VIRTIO_PCI_WINDOW_RO_SIZE   0
+#define VIRTIO_PCI_WINDOW_RW_SIZE   4
+#define VIRTIO_PCI_WINDOW_RO_BAR    8
+#define VIRTIO_PCI_WINDOW_RW_BAR    9
 
 struct virtio_peer_config {
     uint64_t queue_data_offset;
@@ -23,8 +22,12 @@ struct virtio_peer_config {
     uint8_t queue_flags;
     uint8_t queue_window_idr;
     uint8_t queue_window_idw;
-    uint8_t pad;
-    struct virtio_window windows[2];
 } QEMU_PACKED;
 
+struct virtio_window_config {
+    uint32_t ro_win_size;
+    uint32_t rw_win_size;
+    uint8_t rw_bar;
+    uint8_t ro_bar;
+} QEMU_PACKED;
 #endif /* _LINUX_VIRTIO_PEER_H */
