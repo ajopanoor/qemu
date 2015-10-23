@@ -48,7 +48,7 @@
  * configuration space */
 #define VIRTIO_PCI_CONFIG_SIZE(dev)     VIRTIO_PCI_CONFIG_OFF(msix_enabled(dev))
 
-#define DEBUG_VIRTIO_PCI
+//#define DEBUG_VIRTIO_PCI
 
 #ifdef DEBUG_VIRTIO_PCI
 #define PCI_PRINTF(fmt, ...) \
@@ -2160,6 +2160,7 @@ static int virtio_peer_config_window(VirtIOPCIProxy *proxy, int idx, int bar)
     uint32_t attr;
 
     win->win_size = 4 << 20; /* 4 MB FIXME: use cmd_size */
+    win->bar = bar;
     strncpy(win->shm_name, shm_name[idx], 10);
 
     if ((win->fd = shm_open(win->shm_name, O_CREAT|O_RDWR|O_EXCL,

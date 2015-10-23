@@ -28,6 +28,7 @@ typedef struct VirtIOPeerArgs {
 
 typedef struct VirtIOWinCfg {
     int fd;
+    int bar;
     uint32_t shmid;
     char shm_name[10];
     uint32_t win_size;

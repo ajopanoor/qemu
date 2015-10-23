@@ -65,23 +65,15 @@ static void virtio_peer_set_config(VirtIODevice *vdev, const uint8_t *config)
 
 static inline void read_queue_config(VirtIOPeer *vpeer)
 {
-    int ro, rw;
-
     vpeer->dev_cfg.queue_magic = VIRTIO_PEER_MAGIC;
 
     if(vpeer->role == MASTER) {
-        ro = vpeer->dev_cfg.queue_window_idr = 0;
-        rw = vpeer->dev_cfg.queue_window_idw = 1;
+        vpeer->dev_cfg.queue_window_idr = vpeer->win_cfg[0].bar;
+        vpeer->dev_cfg.queue_window_idw = vpeer->win_cfg[1].bar;
     } else {
-        ro = vpeer->dev_cfg.queue_window_idr = 1;
-        rw = vpeer->dev_cfg.queue_window_idw = 0;
+        vpeer->dev_cfg.queue_window_idr = vpeer->win_cfg[1].bar;
+        vpeer->dev_cfg.queue_window_idw = vpeer->win_cfg[0].bar;
     }
-
-    vpeer->dev_cfg.windows[ro].win_phy_start = (uint64_t) vpeer->win_cfg[ro].va;
-    vpeer->dev_cfg.windows[rw].win_phy_start = (uint64_t) vpeer->win_cfg[rw].va;
-
-    vpeer->dev_cfg.windows[rw].win_size = vpeer->win_cfg[ro].win_size;
-    vpeer->dev_cfg.windows[ro].win_size = vpeer->win_cfg[rw].win_size;
 }
 
 static void virtio_peer_reset(VirtIODevice *vdev)
